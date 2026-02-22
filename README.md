@@ -117,5 +117,4 @@ sudo ./uninstall-luks-sddm-unlock.sh
 
 ## License
 
-This project is licensed under the Unlicense - See LICENSE file for details.
-This is public domain with no copyright restrictions.
+This project is licensed under the MIT License - See LICENSE file for details.
