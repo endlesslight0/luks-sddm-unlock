@@ -326,20 +326,41 @@ DROPINEOF
 
 # Backup and modify PAM config for autologin
 log_info "Configuring PAM for kwallet auto-unlock..."
-if [ ! -f "/etc/pam.d/${PAM_SERVICE}.bak" ]; then
-    cp "/etc/pam.d/${PAM_SERVICE}" "/etc/pam.d/${PAM_SERVICE}.bak"
+PAM_FILE="/etc/pam.d/${PAM_SERVICE}"
+PAM_CREATED_MARKER="${PAM_FILE}.created-by-luks-dm-unlock"
+if [ ! -f "$PAM_FILE" ]; then
+    # Fedora 44+ ships some PAM files only in /usr/lib/pam.d/. Promote a copy
+    # to /etc/pam.d/ so our edit lives in the local override layer.
+    if [ -f "/usr/lib/pam.d/${PAM_SERVICE}" ]; then
+        log_info "PAM file ${PAM_SERVICE} not in /etc/pam.d/; copying from /usr/lib/pam.d/"
+        cp "/usr/lib/pam.d/${PAM_SERVICE}" "$PAM_FILE"
+        touch "$PAM_CREATED_MARKER"
+    else
+        log_error "PAM file ${PAM_SERVICE} not found in /etc/pam.d/ or /usr/lib/pam.d/"
+        exit 1
+    fi
+elif [ ! -f "${PAM_FILE}.bak" ] && [ ! -f "$PAM_CREATED_MARKER" ]; then
+    # Only snapshot a .bak when there's a real pre-existing file to restore.
+    # If the marker exists, install previously created this file from
+    # /usr/lib/pam.d/, so the "original state" is "no local file" — no .bak.
+    cp "$PAM_FILE" "${PAM_FILE}.bak"
 fi
 
-# Add pam_luks_cached in auth section before pam_kwallet (skip if already present)
-if grep -q "pam_luks_cached" "/etc/pam.d/${PAM_SERVICE}" 2>/dev/null; then
+# Add pam_luks_cached in the auth section. The grep anchors on ^auth so we
+# only fire the elif when the sed has a matching auth line — otherwise files
+# that mention pam_kwallet only in session lines (e.g. plasmalogin-autologin
+# on Fedora 44) caused the grep to match but the sed to silently do nothing.
+if grep -q "pam_luks_cached" "$PAM_FILE" 2>/dev/null; then
     log_info "pam_luks_cached already present in ${PAM_SERVICE}, skipping insertion"
-elif grep -q "pam_kwallet" "/etc/pam.d/${PAM_SERVICE}" 2>/dev/null; then
-    sed -i '/^auth.*pam_kwallet/i -auth      optional      pam_luks_cached.so' "/etc/pam.d/${PAM_SERVICE}"
-elif grep -q "^auth.*required.*pam_permit.so" "/etc/pam.d/${PAM_SERVICE}" 2>/dev/null; then
-    sed -i '/^auth.*required.*pam_permit.so/a -auth      optional      pam_luks_cached.so' "/etc/pam.d/${PAM_SERVICE}"
+elif grep -q "^auth.*pam_kwallet" "$PAM_FILE" 2>/dev/null; then
+    sed -i '/^auth.*pam_kwallet/i -auth      optional      pam_luks_cached.so' "$PAM_FILE"
+    log_info "Inserted pam_luks_cached before auth pam_kwallet in ${PAM_SERVICE}"
+elif grep -q "^auth.*required.*pam_permit.so" "$PAM_FILE" 2>/dev/null; then
+    sed -i '/^auth.*required.*pam_permit.so/a -auth      optional      pam_luks_cached.so' "$PAM_FILE"
+    log_info "Inserted pam_luks_cached after auth pam_permit in ${PAM_SERVICE}"
 else
-    log_warn "Could not find pam_kwallet or pam_permit anchor in ${PAM_SERVICE}; skipping PAM edit"
-    log_warn "You may need to add this line manually to /etc/pam.d/${PAM_SERVICE}:"
+    log_warn "Could not find an auth pam_kwallet or pam_permit anchor in ${PAM_SERVICE}; skipping PAM edit"
+    log_warn "You may need to add this line manually to ${PAM_FILE}:"
     log_warn "  -auth      optional      pam_luks_cached.so"
 fi
 

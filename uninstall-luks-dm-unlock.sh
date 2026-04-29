@@ -79,9 +79,15 @@ rm -f "/etc/systemd/system/${DM_SERVICE}.d/after-luks-password.conf"
 rmdir "/etc/systemd/system/${DM_SERVICE}.d" 2>/dev/null || true
 
 log_info "Restoring PAM configuration..."
-if [ -f "/etc/pam.d/${PAM_SERVICE}.bak" ]; then
-    cp "/etc/pam.d/${PAM_SERVICE}.bak" "/etc/pam.d/${PAM_SERVICE}"
-    rm -f "/etc/pam.d/${PAM_SERVICE}.bak"
+PAM_FILE="/etc/pam.d/${PAM_SERVICE}"
+PAM_CREATED_MARKER="${PAM_FILE}.created-by-luks-dm-unlock"
+if [ -f "$PAM_CREATED_MARKER" ]; then
+    # Install copied this file from /usr/lib/pam.d/; remove the local override
+    # so PAM falls back to the vendor file under /usr/lib/pam.d/.
+    rm -f "$PAM_FILE" "$PAM_CREATED_MARKER" "${PAM_FILE}.bak"
+elif [ -f "${PAM_FILE}.bak" ]; then
+    cp "${PAM_FILE}.bak" "$PAM_FILE"
+    rm -f "${PAM_FILE}.bak"
 fi
 
 log_info "Cleaning up credential files..."
