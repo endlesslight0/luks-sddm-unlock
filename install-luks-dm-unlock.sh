@@ -240,14 +240,20 @@ cat > /usr/lib/systemd/luks-dm-password.sh << 'SCRIPTEOF'
 
 TMP_FILE="/run/luks-password"
 
-KEY_ID=$(keyctl search @u user cryptsetup 2>/dev/null)
+# With KeyringMode=shared the session keyring (@s) is shared with PID 1, which
+# is where systemd-cryptsetup stores the password. Fall back to the user keyring
+# (@u) for older systemd versions.
+KEY_ID=$(keyctl search @s user cryptsetup 2>/dev/null || \
+         keyctl search @u user cryptsetup 2>/dev/null || \
+         true)
 
 if [ -z "$KEY_ID" ]; then
-    echo "luks-dm-password: No cached password in keyring" >&2
+    echo "luks-dm-password: No cached password found in keyring (@s or @u)" >&2
     exit 0
 fi
 
-# Write to temp file in /run (init_t can write to var_run_t)
+echo "luks-dm-password: Reading key $KEY_ID from keyring" >&2
+
 keyctl pipe "$KEY_ID" | tr "\0" "\n" | head -1 > "$TMP_FILE"
 
 if [ -s "$TMP_FILE" ]; then
@@ -282,7 +288,7 @@ if [ -s "$TMP_FILE" ]; then
     fi
 else
     rm -f "$TMP_FILE"
-    echo "luks-dm-password: Failed to read keyring" >&2
+    echo "luks-dm-password: Key $KEY_ID found but pipe read empty ($(keyctl describe "$KEY_ID" 2>&1))" >&2
 fi
 SCRIPTEOF
 chmod 755 /usr/lib/systemd/luks-dm-password.sh
@@ -293,8 +299,8 @@ cat > /usr/lib/systemd/system/luks-dm-password.service << UNITEOF
 [Unit]
 Description=Forward LUKS password to display manager credential store
 DefaultDependencies=no
-After=cryptsetup.target local-fs.target systemd-tmpfiles-setup.service
-Before=display-manager.service graphical.target
+After=cryptsetup.target
+Before=local-fs.target display-manager.service graphical.target
 
 [Service]
 Type=oneshot
