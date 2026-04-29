@@ -358,17 +358,30 @@ fi
 # on Fedora 44) caused the grep to match but the sed to silently do nothing.
 if grep -q "pam_luks_cached" "$PAM_FILE" 2>/dev/null; then
     log_info "pam_luks_cached already present in ${PAM_SERVICE}, skipping insertion"
-elif grep -q "^auth.*pam_kwallet" "$PAM_FILE" 2>/dev/null; then
-    sed -i '/^auth.*pam_kwallet/i -auth      optional      pam_luks_cached.so' "$PAM_FILE"
+elif grep -q "^-\?auth.*pam_kwallet" "$PAM_FILE" 2>/dev/null; then
+    sed -i '/^-\?auth.*pam_kwallet/i -auth      optional      pam_luks_cached.so' "$PAM_FILE"
     log_info "Inserted pam_luks_cached before auth pam_kwallet in ${PAM_SERVICE}"
-elif grep -q "^auth.*required.*pam_permit.so" "$PAM_FILE" 2>/dev/null; then
-    sed -i '/^auth.*required.*pam_permit.so/a -auth      optional      pam_luks_cached.so' "$PAM_FILE"
+elif grep -q "^-\?auth.*required.*pam_permit.so" "$PAM_FILE" 2>/dev/null; then
+    sed -i '/^-\?auth.*required.*pam_permit.so/a -auth      optional      pam_luks_cached.so' "$PAM_FILE"
     log_info "Inserted pam_luks_cached after auth pam_permit in ${PAM_SERVICE}"
 else
     log_warn "Could not find an auth pam_kwallet or pam_permit anchor in ${PAM_SERVICE}; skipping PAM edit"
     log_warn "You may need to add this line manually to ${PAM_FILE}:"
     log_warn "  -auth      optional      pam_luks_cached.so"
 fi
+
+# pam_kwallet5/pam_kwallet must run in the auth phase to derive and store the
+# kwallet key from PAM_AUTHTOK. Some autologin configs (e.g. PLM on Fedora 44)
+# only put them in the session section, expecting the user to type their
+# password at the greeter. Since we inject PAM_AUTHTOK via pam_luks_cached, we
+# add them to auth so the session phase finds the pre-derived key.
+for kwallet_mod in pam_kwallet5.so pam_kwallet.so; do
+    if grep -q "^-\?session.*${kwallet_mod}" "$PAM_FILE" 2>/dev/null && \
+       ! grep -q "^-\?auth.*${kwallet_mod}" "$PAM_FILE" 2>/dev/null; then
+        sed -i "/^-\?auth.*pam_luks_cached/a -auth      optional      ${kwallet_mod}" "$PAM_FILE"
+        log_info "Added ${kwallet_mod} to auth section in ${PAM_SERVICE}"
+    fi
+done
 
 # Enable the service
 log_info "Enabling services..."
