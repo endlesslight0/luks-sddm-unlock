@@ -57,7 +57,7 @@ esac
 
 # Auto-detect current user (prefer SUDO_USER over logname; whoami would return "root" under sudo)
 AUTOLOGIN_USER="${SUDO_USER:-$(logname 2>/dev/null || true)}"
-AUTOLOGIN_SESSION="plasma"
+AUTOLOGIN_SESSION="plasma.desktop"
 
 # Colors
 RED='\033[0;31m'
